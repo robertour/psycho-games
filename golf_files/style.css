@@ -1,0 +1,56 @@
+/*Stylesheet*/
+table{
+display: none;
+}
+.questionary div:first-of-type{
+display: none;
+}
+.questionary hr {
+display: none;
+}
+.canvasHolder{
+position: relative;
+width: 800px;
+height: 600px
+}
+#testCanvas{
+background-color:black;
+background-repeat: no-repeat;
+}
+.game-element{
+top: 0px;
+position:absolute;
+}
+#messageHolder {
+top: 60%;
+width: 100%;
+text-align: center;
+}
+#instructions, #message {
+display: block;
+width: 100%;
+color: white;
+text-decoration: none;
+font-size: 32px;
+}
+#instructions h1{
+color: white;
+font-size: 32px;
+}
+#instructions p{
+color: white;
+font-size: 16px;
+padding: 0 125px;
+}
+#instructions:hover {
+text-decoration: none;
+}
+#timer{
+color:blue;
+display: none;
+}
+#submit0{
+padding: 10px 16px;
+font-size: 18px;
+display: none;
+}

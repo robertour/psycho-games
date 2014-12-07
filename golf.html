@@ -1,0 +1,728 @@
+<!DOCTYPE html>
+<!-- saved from url=(0056)http://www.createjs.com/Demos/EaselJS/LocalToGlobal.html -->
+<html><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+
+<title>EaselJS Example: Using localToGlobal</title>
+
+	<link href="./golf_files/style.css" rel="stylesheet" type="text/css">
+
+<!-- Note: All core EaselJS classes are listed here: -->
+<script src="https://dl.dropboxusercontent.com/u/462142/js/seedrandom.min.js"></script>
+<script src="https://dl.dropboxusercontent.com/u/462142/js/createjs-2013.12.12.min.js"></script>
+
+<script type"text/javascript">
+
+// Mode of the games
+var MODE_MANUAL = 0;
+var MODE_AUTO = 1;
+var mode = MODE_MANUAL;
+
+// Phases of the game
+var PHASE_WAIT = -1;
+var PHASE_READY = 0;
+var PHASE_ROTATION = 1;
+var PHASE_DISTANCE = 2;
+var PHASE_RESET = 3;
+var PHASE_END = 4;
+
+var phase = PHASE_READY;
+
+//useful keycodes
+var KEYCODE_SPACE = 32;
+var KEYCODE_LEFT = 37;
+var KEYCODE_RIGHT = 39;
+document.onkeydown = handleKeyDown;
+
+// The main container
+var canvas;
+var stage;
+var results;
+var message;
+var timer;
+
+// Visual of the main elements
+var pendulum;
+var target;
+var laser;
+var arm;
+var pointer;
+
+// Global counters
+var rotation_initial_time;
+var rotation_final_time;
+var distance_inital_time;
+var distance_final_time;
+var event_time;
+var iteration = 0;
+var rotation_oscillations = 0;
+var distance_steps = [7.210184888212262, 6.9341443088845045, 7.825814949362991, 6.575217025273496, 6.12421147686911, 6.939218278340873, 7.301312378447871, 7.816184479818128, 6.668511238319391, 7.723674163923026, 6.452631423890991, 7.514222926499033, 7.098523873553308, 6.428425903005203, 7.208792902778723, 7.480514006768007, 6.051577466271555, 6.164804431533939, 7.913318938007695, 7.1713097224769005];
+var rotation_targets = [-35.08513788606777, -34.493565322232016, 11.041289147374911, -32.4731309417961, -2.4636908801883948, 48.99891536251123, 29.589827893386044, -39.7055570907043, -15.004757588885745, -32.26431267409467, -6.310669340443525, 44.90090592315332, 30.873552556765134, -18.651977324872508, 1.6514743042433153, -9.251773920705432, 13.695661579898413, -40.72455327122883, -6.072465226971715, -24.66315999595528];
+
+// Parameters of the pendulum
+var ARM_HEIGHT = 100;
+var ARM_APERTURE = 140;
+var MIN_ANGLE = 90 + (180 - ARM_APERTURE)/2.0;
+var MAX_ANGLE = MIN_ANGLE + ARM_APERTURE;
+
+// Parameters of the target
+var TARGET_APERTURE = 100;
+var DISTANCE = 450;
+
+// Control of difficulty
+var ITERATIONS = 2;
+var INTERVAL = 1;
+var rotation_step = 1;
+var distance_step = 3;
+
+// Accumulative variables
+var acc_rotation_time = 0;
+var acc_rotation_oscillations = 0;
+var acc_rotation_score = 0;
+var acc_distance_time = 0;
+var acc_distance_score = 0;
+
+function init() {
+
+	document.getElementById("instructions").style.display = 'none';
+	message = document.getElementById("message");
+
+	// get references to canvas 
+	canvas = document.getElementById("testCanvas");
+	//canvas.style['background-image']="url('wall.jpg')";
+	results = document.getElementById("results");
+	timer = document.getElementById("timer");
+
+	//Math.seedrandom('macarena.')
+	//for (var i=0; i<ITERATIONS; i += 1) {
+	//	distance_steps[i] = Math.random() * 2 + 6;
+	//	rotation_targets[i] = Math.random() * TARGET_APERTURE - TARGET_APERTURE / 2.0;
+	//}
+
+	// create a new stage and point it at our canvas:
+	stage = new createjs.Stage(canvas);
+
+	// set up the arm of the pendulum
+	arm = new createjs.Shape();
+	g = arm.graphics;
+	g.beginFill("#228B22");
+	g.drawRect(-3,-3,6,ARM_HEIGHT);
+
+	//set up the pointer
+	pointer = new createjs.Shape();
+	pointer.graphics.beginFill("#228B22").drawPolyStar(0, 0, 20, 3, 0, 90);
+	pointer.regY = 2;
+	pointer.y = ARM_HEIGHT;
+
+	//set up the target
+	target = new createjs.Container();
+	var color = "#8B2222";
+	var ring = new createjs.Shape();
+	var g = ring.graphics;
+	for (var i=33; i>0; i -= 5) {
+		g.beginFill(color).drawCircle(0, 0, i);
+		if (color === "#8B2222") {
+			color= "black";
+		} else {
+			color = "#8B2222";
+		}
+	}
+	target.addChild(ring);
+	target.x = canvas.width/2;
+	target.y = canvas.height;
+	target.regY = DISTANCE;
+	target.rotation = rotation_targets[iteration % ITERATIONS];
+
+	// set up the laser
+	laser = new createjs.Shape();
+	laser.distance = 0;
+	laser.regY = 0;
+	laser.y = ARM_HEIGHT;
+
+	// set up the pendulum
+	pendulum = new createjs.Container();
+	pendulum.addChild(laser);
+	pendulum.addChild(pointer);
+	pendulum.addChild(arm);
+
+	pendulum.x = canvas.width/2;
+	pendulum.y = canvas.height;
+	pendulum.regY = 0;
+	pendulum.rotation = MAX_ANGLE - ARM_APERTURE/2;
+
+	// add the elements to the stage
+	var iris = new createjs.Shape();
+	var g = iris.graphics.setStrokeStyle(3); 
+	for (var i=50; i<200; i += 50) {
+		g.beginStroke("rgba(200,200,200," + (1 - i/250.0) + ")");
+		g.drawCircle(pendulum.x, pendulum.y, DISTANCE+i);
+		g.drawCircle(pendulum.x, pendulum.y, DISTANCE-i);
+	}
+	stage.addChild(iris);
+	stage.addChild(target);
+	stage.addChild(pendulum);
+
+	message.innerHTML = "Get Ready!";
+
+	// start the tick and point it at the window so we can do some work 
+	// before updating the stage:
+	createjs.Ticker.setInterval(1);
+	createjs.Ticker.addEventListener("tick", tick);
+	event_time = createjs.Ticker.getTime();
+
+}
+
+function tick(event) {
+	switch(phase) {
+		case PHASE_READY:
+			rotation_initial_time = createjs.Ticker.getTime();
+			elapsed = rotation_initial_time - event_time;
+			var WAIT_TIME = 5000;
+			if (elapsed >= WAIT_TIME-3000 && elapsed < WAIT_TIME) {
+				laser.distance = 0;
+				laser.graphics.clear();
+				target.rotation = rotation_targets[iteration % ITERATIONS];
+				pendulum.rotation = MAX_ANGLE - ARM_APERTURE/2;
+				if (mode === MODE_MANUAL){
+					phase = PHASE_ROTATION;
+					message.innerHTML = "";
+					rotation_oscillations = -1;
+				} else if (mode === MODE_AUTO){
+					message.innerHTML = "" + (Math.round((WAIT_TIME-elapsed)/1000.0));
+				}
+			} else if (elapsed >= WAIT_TIME && mode === MODE_AUTO) {
+				message.innerHTML = "";
+				phase = PHASE_ROTATION;
+				rotation_oscillations = 0;
+			}
+			break;
+		case PHASE_ROTATION:
+			// update the pendulum
+			if (mode === MODE_AUTO){
+				pendulum.rotation += rotation_step;
+				if (pendulum.rotation >= MAX_ANGLE || pendulum.rotation <= MIN_ANGLE){
+					rotation_step = 0-rotation_step;
+					rotation_oscillations++;
+				}
+				rotation_final_time = createjs.Ticker.getTime() - rotation_initial_time;
+				timer.innerHTML = "time: " + Math.round(rotation_final_time);
+			}
+			break;
+		case PHASE_DISTANCE:
+			if (laser.distance < DISTANCE*2){
+				laser.distance += distance_step;
+				laser.graphics.clear().beginFill("yellow").drawRect(-1,-1,2,laser.distance);
+			} else {
+				handleKeyDown("", KEYCODE_SPACE);
+			}
+			break;
+		case PHASE_END:
+			break;
+
+	}
+	stage.update(event);
+}
+
+//allow for WASD and arrow control scheme
+function handleKeyDown(e, keycode) {
+	if (!keycode){
+		if(!e){ var e = window.event; }
+		keycode = e.keyCode
+	}
+	switch(keycode) {
+		case KEYCODE_LEFT:
+			if (mode === MODE_MANUAL && phase == PHASE_ROTATION){
+				if (pendulum.rotation > MIN_ANGLE) {
+					pendulum.rotation -= rotation_step;
+				}
+				rotation_final_time = createjs.Ticker.getTime() - rotation_initial_time;
+			}
+			return false;
+		case KEYCODE_RIGHT:
+			if (mode === MODE_MANUAL && phase == PHASE_ROTATION){
+				if (pendulum.rotation < MAX_ANGLE ){
+					pendulum.rotation += rotation_step;
+				}
+				rotation_final_time = createjs.Ticker.getTime() - rotation_initial_time;
+			}
+			return false;
+		case KEYCODE_SPACE:
+			switch(phase){
+				case PHASE_READY:
+					return false;
+				case PHASE_ROTATION:
+					distance_initial_time = createjs.Ticker.getTime()
+					phase = PHASE_DISTANCE;
+					return false;
+				case PHASE_DISTANCE:
+					createjs.Ticker.removeEventListener("tick", tick);
+
+					distance_final_time = createjs.Ticker.getTime() - distance_initial_time;
+					var distance_user = laser.distance + ARM_HEIGHT;
+					var distance_score = Math.abs(DISTANCE - distance_user);
+					var distance_worst_score = DISTANCE * 1.0;
+					var distance_norm_score = distance_score/distance_worst_score;
+
+					var rotation_target = target.rotation + TARGET_APERTURE/2.0 + (ARM_APERTURE-TARGET_APERTURE)/2.0;
+					var rotation_user = pendulum.rotation - (180-ARM_APERTURE)/2.0 - 90;
+					var rotation_score = Math.abs(rotation_target - rotation_user);
+					var rotation_worst_score = TARGET_APERTURE + (ARM_APERTURE-TARGET_APERTURE)/2.0;
+					var rotation_norm_score = 1-(rotation_score/rotation_worst_score);
+					var iteration_string = "";
+					if (iteration < 9){
+						iteration_string = "0" + (iteration + 1);
+					} else {
+						iteration_string = "" + (iteration + 1);
+					}
+
+					document.getElementById("IT01_" + iteration_string).value = iteration;
+					document.getElementById("RT01_" + iteration_string).value = rotation_final_time;
+					document.getElementById("RO01_" + iteration_string).value = rotation_oscillations;
+					document.getElementById("RP01_" + iteration_string).value = rotation_step;
+					document.getElementById("RG01_" + iteration_string).value = rotation_target;
+					document.getElementById("RU01_" + iteration_string).value = rotation_user;
+					document.getElementById("RC01_" + iteration_string).value = rotation_score;
+					document.getElementById("RN01_" + iteration_string).value = rotation_norm_score;
+					document.getElementById("RW01_" + iteration_string).value = rotation_worst_score;
+					document.getElementById("DT01_" + iteration_string).value = distance_final_time;
+					document.getElementById("DP01_" + iteration_string).value = distance_step;
+					document.getElementById("DG01_" + iteration_string).value = DISTANCE;
+					document.getElementById("DU01_" + iteration_string).value = distance_user;
+					document.getElementById("DS01_" + iteration_string).value = distance_score;
+					document.getElementById("DN01_" + iteration_string).value = distance_norm_score;
+					document.getElementById("DW01_" + iteration_string).value = distance_worst_score;
+
+					acc_rotation_time += rotation_final_time;
+					acc_rotation_oscillations += rotation_oscillations;
+					acc_rotation_score += rotation_score;
+					acc_distance_time += distance_final_time;
+					acc_distance_score += distance_score;
+
+					if (iteration === ITERATIONS - 1){
+						var acc_normal_rotation_score = (acc_rotation_score * 1.0) / (ITERATIONS * rotation_worst_score);
+						var acc_normal_distance_score = (acc_distance_score * 1.0) / (ITERATIONS * distance_worst_score);
+						var general_score = (acc_normal_rotation_score + acc_normal_distance_score) / 2.0;
+
+						document.getElementById("TT01_01").value = acc_rotation_time;
+						document.getElementById("TT01_02").value = acc_rotation_oscillations;
+						document.getElementById("TT01_03").value = acc_rotation_score;
+						document.getElementById("TT01_04").value = acc_distance_time;
+						document.getElementById("TT01_05").value = acc_distance_score;
+						document.getElementById("TT01_06").value = acc_normal_rotation_score;
+						document.getElementById("TT01_07").value = acc_normal_distance_score;
+						document.getElementById("TT01_08").value = general_score;
+						if (mode === MODE_AUTO){
+							document.getElementById("TT01_09").value = 'auto';
+						} else if (mode === MODE_MANUAL){
+							document.getElementById("TT01_09").value = 'manual';
+						}
+
+						document.getElementById("submit0").style.display = 'inline-block';
+						phase = PHASE_END;
+					} else {
+						phase = PHASE_RESET;
+					}
+					handleKeyDown("", KEYCODE_SPACE);
+					return false;
+				case PHASE_RESET:
+					iteration += 1;
+					rotation_step = Math.abs(rotation_step);
+					distance_step = distance_steps[iteration % ITERATIONS];
+					message.innerHTML = "Get Ready!";
+					phase = PHASE_READY;
+					createjs.Ticker.addEventListener("tick", tick);
+					event_time = createjs.Ticker.getTime();
+					return false;
+				case PHASE_END:
+					return false;
+			}
+	}
+}
+</script>
+</head>
+
+<body>
+<div class="canvasHolder">
+	<canvas id="testCanvas" width="800" height="600"></canvas>
+	<div class="game-element">
+		<small id="timer" class="info"></small>
+	</div>
+	<div id="messageHolder" class="game-element">
+		<a href="javascript:init();" id="instructions" class="game-element">
+			<h1 id="message_title">Click Here to Start!</h1>
+			<p>Use the SPACE BAR twice to shoot and to stop the shot. Use the arrows on your keyboard to aim, and SPACE BAR twice to shoot and to stop the shot</p>
+		</a>
+		<div id="message" class="game-element">
+		</div>
+		<input class="button" name="submitNext" id="submit0" type="submit" value="Press to Continue" title="Next">
+	</div>
+</div>
+</body>
+
+
+<!-- begin question(IT01) -->
+<div>
+<input name="IT01_01" id="IT01_01" type="hidden">
+<input name="IT01_02" id="IT01_02" type="hidden">
+<input name="IT01_03" id="IT01_03" type="hidden">
+<input name="IT01_04" id="IT01_04" type="hidden">
+<input name="IT01_05" id="IT01_05" type="hidden">
+<input name="IT01_06" id="IT01_06" type="hidden">
+<input name="IT01_07" id="IT01_07" type="hidden">
+<input name="IT01_08" id="IT01_08" type="hidden">
+<input name="IT01_09" id="IT01_09" type="hidden">
+<input name="IT01_10" id="IT01_10" type="hidden">
+<input name="IT01_11" id="IT01_11" type="hidden">
+<input name="IT01_12" id="IT01_12" type="hidden">
+<input name="IT01_13" id="IT01_13" type="hidden">
+<input name="IT01_14" id="IT01_14" type="hidden">
+<input name="IT01_15" id="IT01_15" type="hidden">
+</div>
+<!-- end question(IT01) -->
+
+
+
+<!-- begin question(RT01) -->
+<div>
+<input name="RT01_01" id="RT01_01" type="hidden">
+<input name="RT01_02" id="RT01_02" type="hidden">
+<input name="RT01_03" id="RT01_03" type="hidden">
+<input name="RT01_04" id="RT01_04" type="hidden">
+<input name="RT01_05" id="RT01_05" type="hidden">
+<input name="RT01_06" id="RT01_06" type="hidden">
+<input name="RT01_07" id="RT01_07" type="hidden">
+<input name="RT01_08" id="RT01_08" type="hidden">
+<input name="RT01_09" id="RT01_09" type="hidden">
+<input name="RT01_10" id="RT01_10" type="hidden">
+<input name="RT01_11" id="RT01_11" type="hidden">
+<input name="RT01_12" id="RT01_12" type="hidden">
+<input name="RT01_13" id="RT01_13" type="hidden">
+<input name="RT01_14" id="RT01_14" type="hidden">
+<input name="RT01_15" id="RT01_15" type="hidden">
+</div>
+<!-- end question(RT01) -->
+
+
+
+<!-- begin question(RO01) -->
+<div>
+<input name="RO01_01" id="RO01_01" type="hidden">
+<input name="RO01_02" id="RO01_02" type="hidden">
+<input name="RO01_03" id="RO01_03" type="hidden">
+<input name="RO01_04" id="RO01_04" type="hidden">
+<input name="RO01_05" id="RO01_05" type="hidden">
+<input name="RO01_06" id="RO01_06" type="hidden">
+<input name="RO01_07" id="RO01_07" type="hidden">
+<input name="RO01_08" id="RO01_08" type="hidden">
+<input name="RO01_09" id="RO01_09" type="hidden">
+<input name="RO01_10" id="RO01_10" type="hidden">
+<input name="RO01_11" id="RO01_11" type="hidden">
+<input name="RO01_12" id="RO01_12" type="hidden">
+<input name="RO01_13" id="RO01_13" type="hidden">
+<input name="RO01_14" id="RO01_14" type="hidden">
+<input name="RO01_15" id="RO01_15" type="hidden">
+</div>
+<!-- end question(RO01) -->
+
+
+
+<!-- begin question(RP01) -->
+<div>
+<input name="RP01_01" id="RP01_01" type="hidden">
+<input name="RP01_02" id="RP01_02" type="hidden">
+<input name="RP01_03" id="RP01_03" type="hidden">
+<input name="RP01_04" id="RP01_04" type="hidden">
+<input name="RP01_05" id="RP01_05" type="hidden">
+<input name="RP01_06" id="RP01_06" type="hidden">
+<input name="RP01_07" id="RP01_07" type="hidden">
+<input name="RP01_08" id="RP01_08" type="hidden">
+<input name="RP01_09" id="RP01_09" type="hidden">
+<input name="RP01_10" id="RP01_10" type="hidden">
+<input name="RP01_11" id="RP01_11" type="hidden">
+<input name="RP01_12" id="RP01_12" type="hidden">
+<input name="RP01_13" id="RP01_13" type="hidden">
+<input name="RP01_14" id="RP01_14" type="hidden">
+<input name="RP01_15" id="RP01_15" type="hidden">
+</div>
+<!-- end question(RP01) -->
+
+
+
+<!-- begin question(RG01) -->
+<div>
+<input name="RG01_01" id="RG01_01" type="hidden">
+<input name="RG01_02" id="RG01_02" type="hidden">
+<input name="RG01_03" id="RG01_03" type="hidden">
+<input name="RG01_04" id="RG01_04" type="hidden">
+<input name="RG01_05" id="RG01_05" type="hidden">
+<input name="RG01_06" id="RG01_06" type="hidden">
+<input name="RG01_07" id="RG01_07" type="hidden">
+<input name="RG01_08" id="RG01_08" type="hidden">
+<input name="RG01_09" id="RG01_09" type="hidden">
+<input name="RG01_10" id="RG01_10" type="hidden">
+<input name="RG01_11" id="RG01_11" type="hidden">
+<input name="RG01_12" id="RG01_12" type="hidden">
+<input name="RG01_13" id="RG01_13" type="hidden">
+<input name="RG01_14" id="RG01_14" type="hidden">
+<input name="RG01_15" id="RG01_15" type="hidden">
+</div>
+<!-- end question(RG01) -->
+
+
+
+<!-- begin question(RU01) -->
+<div>
+<input name="RU01_01" id="RU01_01" type="hidden">
+<input name="RU01_02" id="RU01_02" type="hidden">
+<input name="RU01_03" id="RU01_03" type="hidden">
+<input name="RU01_04" id="RU01_04" type="hidden">
+<input name="RU01_05" id="RU01_05" type="hidden">
+<input name="RU01_06" id="RU01_06" type="hidden">
+<input name="RU01_07" id="RU01_07" type="hidden">
+<input name="RU01_08" id="RU01_08" type="hidden">
+<input name="RU01_09" id="RU01_09" type="hidden">
+<input name="RU01_10" id="RU01_10" type="hidden">
+<input name="RU01_11" id="RU01_11" type="hidden">
+<input name="RU01_12" id="RU01_12" type="hidden">
+<input name="RU01_13" id="RU01_13" type="hidden">
+<input name="RU01_14" id="RU01_14" type="hidden">
+<input name="RU01_15" id="RU01_15" type="hidden">
+</div>
+<!-- end question(RU01) -->
+
+
+
+<!-- begin question(RC01) -->
+<div>
+<input name="RC01_01" id="RC01_01" type="hidden">
+<input name="RC01_02" id="RC01_02" type="hidden">
+<input name="RC01_03" id="RC01_03" type="hidden">
+<input name="RC01_04" id="RC01_04" type="hidden">
+<input name="RC01_05" id="RC01_05" type="hidden">
+<input name="RC01_06" id="RC01_06" type="hidden">
+<input name="RC01_07" id="RC01_07" type="hidden">
+<input name="RC01_08" id="RC01_08" type="hidden">
+<input name="RC01_09" id="RC01_09" type="hidden">
+<input name="RC01_10" id="RC01_10" type="hidden">
+<input name="RC01_11" id="RC01_11" type="hidden">
+<input name="RC01_12" id="RC01_12" type="hidden">
+<input name="RC01_13" id="RC01_13" type="hidden">
+<input name="RC01_14" id="RC01_14" type="hidden">
+<input name="RC01_15" id="RC01_15" type="hidden">
+</div>
+<!-- end question(RC01) -->
+
+
+
+<!-- begin question(RN01) -->
+<div>
+<input name="RN01_01" id="RN01_01" type="hidden">
+<input name="RN01_02" id="RN01_02" type="hidden">
+<input name="RN01_03" id="RN01_03" type="hidden">
+<input name="RN01_04" id="RN01_04" type="hidden">
+<input name="RN01_05" id="RN01_05" type="hidden">
+<input name="RN01_06" id="RN01_06" type="hidden">
+<input name="RN01_07" id="RN01_07" type="hidden">
+<input name="RN01_08" id="RN01_08" type="hidden">
+<input name="RN01_09" id="RN01_09" type="hidden">
+<input name="RN01_10" id="RN01_10" type="hidden">
+<input name="RN01_11" id="RN01_11" type="hidden">
+<input name="RN01_12" id="RN01_12" type="hidden">
+<input name="RN01_13" id="RN01_13" type="hidden">
+<input name="RN01_14" id="RN01_14" type="hidden">
+<input name="RN01_15" id="RN01_15" type="hidden">
+</div>
+<!-- end question(RN01) -->
+
+
+
+<!-- begin question(RW01) -->
+<div>
+<input name="RW01_01" id="RW01_01" type="hidden">
+<input name="RW01_02" id="RW01_02" type="hidden">
+<input name="RW01_03" id="RW01_03" type="hidden">
+<input name="RW01_04" id="RW01_04" type="hidden">
+<input name="RW01_05" id="RW01_05" type="hidden">
+<input name="RW01_06" id="RW01_06" type="hidden">
+<input name="RW01_07" id="RW01_07" type="hidden">
+<input name="RW01_08" id="RW01_08" type="hidden">
+<input name="RW01_09" id="RW01_09" type="hidden">
+<input name="RW01_10" id="RW01_10" type="hidden">
+<input name="RW01_11" id="RW01_11" type="hidden">
+<input name="RW01_12" id="RW01_12" type="hidden">
+<input name="RW01_13" id="RW01_13" type="hidden">
+<input name="RW01_14" id="RW01_14" type="hidden">
+<input name="RW01_15" id="RW01_15" type="hidden">
+</div>
+<!-- end question(RW01) -->
+
+
+
+<!-- begin question(DT01) -->
+<div>
+<input name="DT01_01" id="DT01_01" type="hidden">
+<input name="DT01_02" id="DT01_02" type="hidden">
+<input name="DT01_03" id="DT01_03" type="hidden">
+<input name="DT01_04" id="DT01_04" type="hidden">
+<input name="DT01_05" id="DT01_05" type="hidden">
+<input name="DT01_06" id="DT01_06" type="hidden">
+<input name="DT01_07" id="DT01_07" type="hidden">
+<input name="DT01_08" id="DT01_08" type="hidden">
+<input name="DT01_09" id="DT01_09" type="hidden">
+<input name="DT01_10" id="DT01_10" type="hidden">
+<input name="DT01_11" id="DT01_11" type="hidden">
+<input name="DT01_12" id="DT01_12" type="hidden">
+<input name="DT01_13" id="DT01_13" type="hidden">
+<input name="DT01_14" id="DT01_14" type="hidden">
+<input name="DT01_15" id="DT01_15" type="hidden">
+</div>
+<!-- end question(DT01) -->
+
+
+
+<!-- begin question(DP01) -->
+<div>
+<input name="DP01_01" id="DP01_01" type="hidden">
+<input name="DP01_02" id="DP01_02" type="hidden">
+<input name="DP01_03" id="DP01_03" type="hidden">
+<input name="DP01_04" id="DP01_04" type="hidden">
+<input name="DP01_05" id="DP01_05" type="hidden">
+<input name="DP01_06" id="DP01_06" type="hidden">
+<input name="DP01_07" id="DP01_07" type="hidden">
+<input name="DP01_08" id="DP01_08" type="hidden">
+<input name="DP01_09" id="DP01_09" type="hidden">
+<input name="DP01_10" id="DP01_10" type="hidden">
+<input name="DP01_11" id="DP01_11" type="hidden">
+<input name="DP01_12" id="DP01_12" type="hidden">
+<input name="DP01_13" id="DP01_13" type="hidden">
+<input name="DP01_14" id="DP01_14" type="hidden">
+<input name="DP01_15" id="DP01_15" type="hidden">
+</div>
+<!-- end question(DP01) -->
+
+
+
+<!-- begin question(DG01) -->
+<div>
+<input name="DG01_01" id="DG01_01" type="hidden">
+<input name="DG01_02" id="DG01_02" type="hidden">
+<input name="DG01_03" id="DG01_03" type="hidden">
+<input name="DG01_04" id="DG01_04" type="hidden">
+<input name="DG01_05" id="DG01_05" type="hidden">
+<input name="DG01_06" id="DG01_06" type="hidden">
+<input name="DG01_07" id="DG01_07" type="hidden">
+<input name="DG01_08" id="DG01_08" type="hidden">
+<input name="DG01_09" id="DG01_09" type="hidden">
+<input name="DG01_10" id="DG01_10" type="hidden">
+<input name="DG01_11" id="DG01_11" type="hidden">
+<input name="DG01_12" id="DG01_12" type="hidden">
+<input name="DG01_13" id="DG01_13" type="hidden">
+<input name="DG01_14" id="DG01_14" type="hidden">
+<input name="DG01_15" id="DG01_15" type="hidden">
+</div>
+<!-- end question(DG01) -->
+
+
+
+<!-- begin question(DU01) -->
+<div>
+<input name="DU01_01" id="DU01_01" type="hidden">
+<input name="DU01_02" id="DU01_02" type="hidden">
+<input name="DU01_03" id="DU01_03" type="hidden">
+<input name="DU01_04" id="DU01_04" type="hidden">
+<input name="DU01_05" id="DU01_05" type="hidden">
+<input name="DU01_06" id="DU01_06" type="hidden">
+<input name="DU01_07" id="DU01_07" type="hidden">
+<input name="DU01_08" id="DU01_08" type="hidden">
+<input name="DU01_09" id="DU01_09" type="hidden">
+<input name="DU01_10" id="DU01_10" type="hidden">
+<input name="DU01_11" id="DU01_11" type="hidden">
+<input name="DU01_12" id="DU01_12" type="hidden">
+<input name="DU01_13" id="DU01_13" type="hidden">
+<input name="DU01_14" id="DU01_14" type="hidden">
+<input name="DU01_15" id="DU01_15" type="hidden">
+</div>
+<!-- end question(DU01) -->
+
+
+
+<!-- begin question(DS01) -->
+<div>
+<input name="DS01_01" id="DS01_01" type="hidden">
+<input name="DS01_02" id="DS01_02" type="hidden">
+<input name="DS01_03" id="DS01_03" type="hidden">
+<input name="DS01_04" id="DS01_04" type="hidden">
+<input name="DS01_05" id="DS01_05" type="hidden">
+<input name="DS01_06" id="DS01_06" type="hidden">
+<input name="DS01_07" id="DS01_07" type="hidden">
+<input name="DS01_08" id="DS01_08" type="hidden">
+<input name="DS01_09" id="DS01_09" type="hidden">
+<input name="DS01_10" id="DS01_10" type="hidden">
+<input name="DS01_11" id="DS01_11" type="hidden">
+<input name="DS01_12" id="DS01_12" type="hidden">
+<input name="DS01_13" id="DS01_13" type="hidden">
+<input name="DS01_14" id="DS01_14" type="hidden">
+<input name="DS01_15" id="DS01_15" type="hidden">
+</div>
+<!-- end question(DS01) -->
+
+
+
+<!-- begin question(DN01) -->
+<div>
+<input name="DN01_01" id="DN01_01" type="hidden">
+<input name="DN01_02" id="DN01_02" type="hidden">
+<input name="DN01_03" id="DN01_03" type="hidden">
+<input name="DN01_04" id="DN01_04" type="hidden">
+<input name="DN01_05" id="DN01_05" type="hidden">
+<input name="DN01_06" id="DN01_06" type="hidden">
+<input name="DN01_07" id="DN01_07" type="hidden">
+<input name="DN01_08" id="DN01_08" type="hidden">
+<input name="DN01_09" id="DN01_09" type="hidden">
+<input name="DN01_10" id="DN01_10" type="hidden">
+<input name="DN01_11" id="DN01_11" type="hidden">
+<input name="DN01_12" id="DN01_12" type="hidden">
+<input name="DN01_13" id="DN01_13" type="hidden">
+<input name="DN01_14" id="DN01_14" type="hidden">
+<input name="DN01_15" id="DN01_15" type="hidden">
+</div>
+<!-- end question(DN01) -->
+
+
+
+<!-- begin question(DW01) -->
+<div>
+<input name="DW01_01" id="DW01_01" type="hidden">
+<input name="DW01_02" id="DW01_02" type="hidden">
+<input name="DW01_03" id="DW01_03" type="hidden">
+<input name="DW01_04" id="DW01_04" type="hidden">
+<input name="DW01_05" id="DW01_05" type="hidden">
+<input name="DW01_06" id="DW01_06" type="hidden">
+<input name="DW01_07" id="DW01_07" type="hidden">
+<input name="DW01_08" id="DW01_08" type="hidden">
+<input name="DW01_09" id="DW01_09" type="hidden">
+<input name="DW01_10" id="DW01_10" type="hidden">
+<input name="DW01_11" id="DW01_11" type="hidden">
+<input name="DW01_12" id="DW01_12" type="hidden">
+<input name="DW01_13" id="DW01_13" type="hidden">
+<input name="DW01_14" id="DW01_14" type="hidden">
+<input name="DW01_15" id="DW01_15" type="hidden">
+</div>
+<!-- end question(DW01) -->
+
+
+<!-- begin question(TT01) -->
+<div>
+<input name="TT01_01" id="TT01_01" type="hidden">
+<input name="TT01_02" id="TT01_02" type="hidden">
+<input name="TT01_03" id="TT01_03" type="hidden">
+<input name="TT01_04" id="TT01_04" type="hidden">
+<input name="TT01_05" id="TT01_05" type="hidden">
+<input name="TT01_06" id="TT01_06" type="hidden">
+<input name="TT01_07" id="TT01_07" type="hidden">
+<input name="TT01_08" id="TT01_08" type="hidden">
+<input name="TT01_09" id="TT01_09" type="hidden">
+</div>
+<!-- end question(TT01) -->
+
+
+</html>
